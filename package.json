@@ -1,0 +1,16 @@
+{
+  "name": "joao-activity-tracker",
+  "version": "1.0.0",
+  "description": "My personal activity tracker",
+  "license": "ISC",
+  "author": "João Medinilha",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "mysql2": "^3.14.0"
+  }
+}
