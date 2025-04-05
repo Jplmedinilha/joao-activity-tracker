@@ -77,10 +77,17 @@ app.get("/monitoramento/hoje", verifyAuthHash, async (req, res) => {
 });
 
 app.get("/monitoramento", async (req, res) => {
-  const [rows] = await db.execute(
-    "SELECT * FROM user_activity ORDER BY timestamp"
-  );
-  res.json(rows);
+  try {
+    const [rows] = await db.execute(
+      `SELECT * FROM user_activity 
+         WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY) 
+         ORDER BY timestamp DESC`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Erro ao buscar monitoramento:", err);
+    res.status(500).send("Erro ao buscar dados.");
+  }
 });
 
 // Serve a página de dashboard
