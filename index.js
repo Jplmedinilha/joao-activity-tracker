@@ -50,5 +50,26 @@ app.post("/monitoramento", verifyAuthHash, async (req, res) => {
   }
 });
 
+app.get("/monitoramento/hoje", async (req, res) => {
+  try {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(
+      now.getDate()
+    )}`;
+
+    const [rows] = await db.execute(
+      `SELECT * FROM user_activity WHERE DATE(timestamp) = ? ORDER BY timestamp DESC`,
+      [today]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Erro ao buscar atividades de hoje:", err);
+    res.status(500).json({ error: "Erro interno do servidor" });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
