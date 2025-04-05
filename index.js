@@ -50,7 +50,7 @@ app.post("/monitoramento", verifyAuthHash, async (req, res) => {
   }
 });
 
-app.get("/monitoramento/hoje", async (req, res) => {
+app.get("/monitoramento/hoje", verifyAuthHash, async (req, res) => {
   try {
     const now = new Date();
     const pad = (n) => String(n).padStart(2, "0");
