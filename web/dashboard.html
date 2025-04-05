@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Estatísticas de Uso</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        background: #f5f5f5;
+      }
+      h1 {
+        color: #333;
+      }
+      .stats {
+        margin: 20px 0;
+      }
+      .chart-container {
+        width: 90%;
+        max-width: 800px;
+        margin: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 30px;
+      }
+      th,
+      td {
+        border: 1px solid #ccc;
+        padding: 8px;
+        text-align: left;
+      }
+      th {
+        background: #eee;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>📊 Estatísticas de Uso - Hoje</h1>
+    <div class="stats">
+      <strong>Total de cliques:</strong> <span id="totalClicks">0</span><br />
+      <strong>Total de teclas:</strong> <span id="totalKeys">0</span>
+    </div>
+
+    <div class="chart-container">
+      <canvas id="activityChart"></canvas>
+    </div>
+
+    <h2>📋 Últimos Registros</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Horário</th>
+          <th>Computador</th>
+          <th>Janela</th>
+          <th>Atividade</th>
+          <th>Clicks</th>
+          <th>Teclas</th>
+        </tr>
+      </thead>
+      <tbody id="logTable"></tbody>
+    </table>
+
+    <script>
+      async function fetchData() {
+        const res = await fetch("/monitoramento");
+        if (!res.ok) {
+          console.error("Erro ao buscar dados:", res.statusText);
+          return;
+        }
+        const data = await res.json();
+
+        let totalClicks = 0;
+        let totalKeys = 0;
+        const labels = [];
+        const clickData = [];
+        const keyData = [];
+        const tableBody = document.getElementById("logTable");
+
+        data.forEach((entry) => {
+          const hourLabel = entry.timestamp.slice(11, 16); // HH:MM
+          labels.push(hourLabel);
+          clickData.push(entry.mouse_clicks);
+          keyData.push(entry.key_count);
+
+          totalClicks += entry.mouse_clicks;
+          totalKeys += entry.key_count;
+
+          const row = `
+          <tr>
+            <td>${hourLabel}</td>
+            <td>${entry.hostname}</td>
+            <td>${entry.window_title}</td>
+            <td>${entry.activity}</td>
+            <td>${entry.mouse_clicks}</td>
+            <td>${entry.key_count}</td>
+          </tr>`;
+          tableBody.innerHTML += row;
+        });
+
+        document.getElementById("totalClicks").innerText = totalClicks;
+        document.getElementById("totalKeys").innerText = totalKeys;
+
+        const ctx = document.getElementById("activityChart").getContext("2d");
+        new Chart(ctx, {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Cliques de Mouse",
+                data: clickData,
+                borderColor: "blue",
+                fill: false,
+              },
+              {
+                label: "Teclas Pressionadas",
+                data: keyData,
+                borderColor: "green",
+                fill: false,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { position: "top" },
+              title: { display: true, text: "Atividade ao longo do dia" },
+            },
+          },
+        });
+      }
+
+      fetchData();
+    </script>
+  </body>
+</html>

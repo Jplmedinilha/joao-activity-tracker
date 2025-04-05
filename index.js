@@ -4,8 +4,13 @@ import mysql from "mysql2/promise";
 import dotenv from "dotenv";
 import { inferActivity } from "./inferActivity.js";
 import { verifyAuthHash } from "./authMiddleware.js";
+import path from "path";
+import { fileURLToPath } from "url";
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(bodyParser.json());
@@ -69,6 +74,18 @@ app.get("/monitoramento/hoje", verifyAuthHash, async (req, res) => {
     console.error("Erro ao buscar atividades de hoje:", err);
     res.status(500).json({ error: "Erro interno do servidor" });
   }
+});
+
+app.get("/monitoramento", async (req, res) => {
+  const [rows] = await db.execute(
+    "SELECT * FROM user_activity ORDER BY timestamp"
+  );
+  res.json(rows);
+});
+
+// Serve a página de dashboard
+app.get("/dashboard", (req, res) => {
+  res.sendFile(path.join(__dirname, "web", "dashboard.html"));
 });
 
 const PORT = process.env.PORT || 3000;
