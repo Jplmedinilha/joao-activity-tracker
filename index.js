@@ -133,9 +133,10 @@ app.get("/monitor", async (req, res) => {
     const heatmap = {};
 
     for (const row of mainRows) {
-      const zoned = DateTime.fromJSDate(row.timestamp, {
-        zone: "America/Sao_Paulo",
-      });
+      const zoned = DateTime.fromJSDate(row.timestamp).setZone(
+        "America/Sao_Paulo",
+        { keepLocalTime: true }
+      );
 
       const horaChave = zoned
         .set({
