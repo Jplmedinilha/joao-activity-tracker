@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Monitoramento</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Tom Select CSS -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.css"
+      rel="stylesheet"
+    />
+    <!-- Tom Select JS -->
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
 
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
@@ -36,6 +43,12 @@
       <button class="btn btn-secondary" onclick="refreshDados()">
         🔄 Atualizar
       </button>
+      <label for="hostnameSelect">Filtrar hostnames:</label>
+      <select
+        id="hostnameSelect"
+        multiple
+        placeholder="Escolha os hostnames..."
+      ></select>
     </div>
     <div class="row d-flex justify-content-center mb-4">
       <div class="col-md-8">
@@ -110,6 +123,8 @@
         return cores[index % cores.length];
       }
 
+      const hostnameSelect = document.getElementById("hostnameSelect");
+
       async function buscarDados() {
         const dataInput = document.getElementById("dataInput").value;
         if (!dataInput) return;
@@ -118,6 +133,11 @@
         const res = await fetch(`/monitor?dia=${dia}&mes=${mes}&ano=${ano}`);
         const json = await res.json();
         const dados = json.atividades || [];
+
+        window.dadosOriginais = dados; // guarda tudo
+        window.ctxGrafico = document
+          .getElementById("activityChart")
+          .getContext("2d");
 
         const timestamps = [];
         const acoes = {
@@ -248,6 +268,12 @@
         container.innerHTML = "";
 
         Object.entries(appUsagePorHostname).forEach(([hostname, apps], idx) => {
+          //hostnameSelect
+          const option = document.createElement("option");
+          option.value = hostname;
+          option.textContent = hostname;
+          hostnameSelect.appendChild(option);
+
           const canvasId = `appChart_${idx}`;
           const canvas = document.createElement("canvas");
           canvas.id = canvasId;
@@ -255,7 +281,18 @@
           container.appendChild(document.createElement("hr"));
 
           const titulo = document.createElement("h6");
-          titulo.textContent = `Uso de apps (${hostname})`;
+          const timestamps = dados
+            ?.filter((a) => a.hostname === hostname)
+            ?.map((a) => new Date(a.timestamp));
+          const menor = new Date(Math.min(...timestamps));
+          const maior = new Date(Math.max(...timestamps));
+          titulo.textContent = `Uso de apps (${hostname}) - from: ${menor.toLocaleTimeString(
+            "pt-BR",
+            { hour: "2-digit", minute: "2-digit" }
+          )} to ${maior.toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })})`;
           container.appendChild(titulo);
           container.appendChild(canvas);
 
@@ -283,6 +320,96 @@
               },
             },
           });
+        });
+
+        new TomSelect("#hostnameSelect", {
+          plugins: ["remove_button"],
+          persist: false,
+          create: false,
+          onChange: (values) => {
+            filtrarGraffico(values);
+          },
+        });
+      }
+
+      function filtrarGraffico(hostnamesSelecionados) {
+        if (!window.dadosOriginais || !window.ctxGrafico) return;
+
+        const dadosFiltrados =
+          hostnamesSelecionados.length > 0
+            ? window.dadosOriginais.filter((item) =>
+                hostnamesSelecionados.includes(item.hostname)
+              )
+            : window.dadosOriginais;
+
+        const timestamps = [];
+        const acoes = {
+          left_clicks: [],
+          right_clicks: [],
+          scroll_up: [],
+          scroll_down: [],
+          total_keys: [],
+        };
+        const customKeys = {};
+        const totais = {};
+
+        dadosFiltrados.forEach((item, i) => {
+          const ts = new Date(item.timestamp);
+          const label = ts.toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+          timestamps.push(label);
+
+          const keys = Object.keys(acoes);
+          keys.forEach((k) => {
+            const v = item[k];
+            acoes[k].push(v);
+            totais[k] = (totais[k] || 0) + v;
+          });
+
+          item.custom_counts.forEach(({ key_name, key_count }) => {
+            if (!customKeys[key_name])
+              customKeys[key_name] = new Array(i).fill(0);
+            customKeys[key_name].push(key_count);
+            totais[`Custom: ${key_name}`] =
+              (totais[`Custom: ${key_name}`] || 0) + key_count;
+
+            Object.keys(customKeys).forEach((k) => {
+              if (customKeys[k].length < i + 1) {
+                customKeys[k].push(0);
+              }
+            });
+          });
+        });
+
+        const datasets = Object.entries(acoes)
+          .map(([acao, valores], i) => ({
+            label: acao,
+            data: valores,
+            fill: false,
+            borderColor: gerarCor(i),
+            tension: 0.2,
+          }))
+          .concat(
+            Object.entries(customKeys).map(([key, valores], i) => ({
+              label: `Custom: ${key}`,
+              data: valores,
+              fill: false,
+              borderColor: gerarCor(i + Object.keys(acoes).length),
+              tension: 0.2,
+            }))
+          );
+
+        if (window.myChart) window.myChart.destroy();
+
+        window.myChart = new Chart(window.ctxGrafico, {
+          type: "line",
+          data: {
+            labels: timestamps,
+            datasets,
+          },
         });
       }
 
