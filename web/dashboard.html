@@ -411,6 +411,18 @@
             datasets,
           },
         });
+
+        const tabela = document.querySelector("#tabelaTotais tbody");
+        tabela.innerHTML = "";
+        const ordenado = Object.entries(totais).sort((a, b) => b[1] - a[1]);
+        let somaTotal = 0;
+        ordenado.forEach(([acao, total]) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${acao}</td><td>${total}</td>`;
+          tabela.appendChild(tr);
+          somaTotal += total;
+        });
+        document.getElementById("totalGeral").innerText = somaTotal;
       }
 
       function refreshDados() {
