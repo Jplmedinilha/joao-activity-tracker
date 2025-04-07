@@ -1,139 +1,301 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Estatísticas de Uso</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monitoramento</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
     <style>
-      body {
-        font-family: Arial, sans-serif;
-        margin: 20px;
-        background: #f5f5f5;
-      }
-      h1 {
-        color: #333;
-      }
-      .stats {
-        margin: 20px 0;
-      }
-      .chart-container {
-        width: 90%;
-        max-width: 800px;
-        margin: auto;
+      #activityChart {
+        height: 1200px;
+        width: 1200px;
       }
       table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 30px;
+        font-size: 0.9rem;
       }
-      th,
-      td {
-        border: 1px solid #ccc;
-        padding: 8px;
-        text-align: left;
+      #tabelaTotais td,
+      #tabelaTotais th,
+      #tabelaHoras td,
+      #tabelaHoras th {
+        vertical-align: middle;
       }
-      th {
-        background: #eee;
+      #tabelaTotais .table-info td {
+        font-weight: bold;
       }
     </style>
   </head>
-  <body>
-    <h1>📊 Estatísticas de Uso - Hoje</h1>
-    <div class="stats">
-      <strong>Total de cliques:</strong> <span id="totalClicks">0</span><br />
-      <strong>Total de teclas:</strong> <span id="totalKeys">0</span>
+  <body class="p-4">
+    <div class="d-flex align-items-center mb-3 gap-2">
+      <input type="date" id="dataInput" class="form-control w-auto" />
+      <button class="btn btn-primary" onclick="buscarDados()">Buscar</button>
+      <button class="btn btn-secondary" onclick="refreshDados()">
+        🔄 Atualizar
+      </button>
     </div>
-
-    <div class="chart-container">
-      <canvas id="activityChart"></canvas>
+    <div class="row d-flex justify-content-center mb-4">
+      <div class="col-md-8">
+        <canvas id="activityChart"></canvas>
+      </div>
+      <div class="col-md-4">
+        <div id="graficoAppsPorHostname" class="mt-5"></div>
+      </div>
     </div>
-
-    <h2>📋 Últimos Registros</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Horário</th>
-          <th>Computador</th>
-          <th>Janela</th>
-          <th>Atividade</th>
-          <th>Clicks</th>
-          <th>Teclas</th>
-        </tr>
-      </thead>
-      <tbody id="logTable"></tbody>
-    </table>
+    <!-- <div class="row d-flex justify-content-center mb-4">
+      <h5>Heatmap de Atividades</h5>
+      <canvas id="heatmapCanvas" style="max-height: 400px"></canvas>
+    </div> -->
+    <div class="row">
+      <div class="col-md-6">
+        <h5>Ações</h5>
+        <table class="table table-striped mt-3" id="tabelaTotais">
+          <thead>
+            <tr>
+              <th>Ação</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot>
+            <tr class="table-info">
+              <td>Total Geral</td>
+              <td id="totalGeral"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div class="col-md-2">
+        <h5>Horas Ativas por Hostname</h5>
+        <table class="table table-bordered" id="tabelaHoras">
+          <thead>
+            <tr>
+              <th>Hostname</th>
+              <th>Horas Ativas</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
 
     <script>
-      async function fetchData() {
-        const res = await fetch("/monitoramento");
-        if (!res.ok) {
-          console.error("Erro ao buscar dados:", res.statusText);
-          return;
-        }
-        const data = await res.json();
+      function formatarTempo(totalSegundos) {
+        const horas = Math.floor(totalSegundos / 3600);
+        const minutos = Math.floor((totalSegundos % 3600) / 60);
+        return `${horas}h ${minutos}min`;
+      }
 
-        let totalClicks = 0;
-        let totalKeys = 0;
-        const labels = [];
-        const clickData = [];
-        const keyData = [];
-        const tableBody = document.getElementById("logTable");
+      function gerarCor(index) {
+        const cores = [
+          "#3366cc",
+          "#dc3912",
+          "#ff9900",
+          "#109618",
+          "#990099",
+          "#0099c6",
+          "#dd4477",
+          "#66aa00",
+          "#b82e2e",
+          "#316395",
+          "#994499",
+          "#22aa99",
+          "#aaaa11",
+          "#6633cc",
+          "#e67300",
+        ];
+        return cores[index % cores.length];
+      }
 
-        data.forEach((entry) => {
-          const hourLabel = entry.timestamp.slice(11, 16); // HH:MM
-          labels.push(hourLabel);
-          clickData.push(entry.mouse_clicks);
-          keyData.push(entry.key_count);
+      async function buscarDados() {
+        const dataInput = document.getElementById("dataInput").value;
+        if (!dataInput) return;
 
-          totalClicks += entry.mouse_clicks;
-          totalKeys += entry.key_count;
+        const [ano, mes, dia] = dataInput.split("-");
+        const res = await fetch(`/monitor?dia=${dia}&mes=${mes}&ano=${ano}`);
+        const json = await res.json();
+        const dados = json.atividades || [];
 
-          const row = `
-          <tr>
-            <td>${hourLabel}</td>
-            <td>${entry.hostname}</td>
-            <td>${entry.window_title}</td>
-            <td>${entry.activity}</td>
-            <td>${entry.mouse_clicks}</td>
-            <td>${entry.key_count}</td>
-          </tr>`;
-          tableBody.innerHTML += row;
+        const timestamps = [];
+        const acoes = {
+          left_clicks: [],
+          right_clicks: [],
+          scroll_up: [],
+          scroll_down: [],
+          total_keys: [],
+        };
+        const customKeys = {};
+        const totais = {};
+        const atividadePorHostname = {};
+        const appUsagePorHostname = {};
+
+        dados.forEach((item, i) => {
+          const ts = new Date(item.timestamp);
+          const label = ts.toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+          timestamps.push(label);
+
+          const keys = Object.keys(acoes);
+          keys.forEach((k) => {
+            const v = item[k];
+            acoes[k].push(v);
+            totais[k] = (totais[k] || 0) + v;
+          });
+
+          item.custom_counts.forEach(({ key_name, key_count }) => {
+            if (!customKeys[key_name])
+              customKeys[key_name] = new Array(i).fill(0);
+            customKeys[key_name].push(key_count);
+            totais[`Custom: ${key_name}`] =
+              (totais[`Custom: ${key_name}`] || 0) + key_count;
+
+            Object.keys(customKeys).forEach((k) => {
+              if (customKeys[k].length < i + 1) {
+                customKeys[k].push(0);
+              }
+            });
+          });
+
+          const h = item.hostname;
+          if (!atividadePorHostname[h]) atividadePorHostname[h] = [];
+          const totalAcoes =
+            keys.reduce((soma, k) => soma + item[k], 0) +
+            item.custom_counts.reduce((s, cc) => s + cc.key_count, 0);
+          if (totalAcoes > 0) {
+            atividadePorHostname[h].push(new Date(item.timestamp));
+          }
+
+          const appName = item.app_name;
+          if (!appUsagePorHostname[h]) appUsagePorHostname[h] = {};
+          appUsagePorHostname[h][appName] =
+            (appUsagePorHostname[h][appName] || 0) + 1;
         });
 
-        document.getElementById("totalClicks").innerText = totalClicks;
-        document.getElementById("totalKeys").innerText = totalKeys;
-
+        // Chart principal
         const ctx = document.getElementById("activityChart").getContext("2d");
-        new Chart(ctx, {
+        if (window.myChart) window.myChart.destroy();
+
+        const datasets = Object.entries(acoes)
+          .map(([acao, valores], i) => ({
+            label: acao,
+            data: valores,
+            fill: false,
+            borderColor: gerarCor(i),
+            tension: 0.2,
+          }))
+          .concat(
+            Object.entries(customKeys).map(([key, valores], i) => ({
+              label: `Custom: ${key}`,
+              data: valores,
+              fill: false,
+              borderColor: gerarCor(i + Object.keys(acoes).length),
+              tension: 0.2,
+            }))
+          );
+
+        window.myChart = new Chart(ctx, {
           type: "line",
           data: {
-            labels,
-            datasets: [
-              {
-                label: "Cliques de Mouse",
-                data: clickData,
-                borderColor: "blue",
-                fill: false,
-              },
-              {
-                label: "Teclas Pressionadas",
-                data: keyData,
-                borderColor: "green",
-                fill: false,
-              },
-            ],
+            labels: timestamps,
+            datasets,
           },
-          options: {
-            responsive: true,
-            plugins: {
-              legend: { position: "top" },
-              title: { display: true, text: "Atividade ao longo do dia" },
+        });
+
+        // Tabela totais
+        const tabela = document.querySelector("#tabelaTotais tbody");
+        tabela.innerHTML = "";
+        const ordenado = Object.entries(totais).sort((a, b) => b[1] - a[1]);
+        let somaTotal = 0;
+        ordenado.forEach(([acao, total]) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${acao}</td><td>${total}</td>`;
+          tabela.appendChild(tr);
+          somaTotal += total;
+        });
+        document.getElementById("totalGeral").innerText = somaTotal;
+
+        // Tabela horas por hostname
+        const tabelaHoras = document.querySelector("#tabelaHoras tbody");
+        tabelaHoras.innerHTML = "";
+        Object.entries(atividadePorHostname).forEach(
+          ([hostname, timestamps]) => {
+            if (timestamps.length === 0) return;
+            timestamps.sort((a, b) => a - b);
+            let totalSegundos = 0;
+
+            for (let i = 1; i < timestamps.length; i++) {
+              const diff = (timestamps[i] - timestamps[i - 1]) / 1000;
+              totalSegundos += diff <= 300 ? diff : 60;
+            }
+            totalSegundos += 60;
+
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td>${hostname}</td><td>${formatarTempo(
+              totalSegundos
+            )}</td>`;
+            tabelaHoras.appendChild(tr);
+          }
+        );
+
+        // Gráficos de pizza por hostname
+        const container = document.getElementById("graficoAppsPorHostname");
+        container.innerHTML = "";
+
+        Object.entries(appUsagePorHostname).forEach(([hostname, apps], idx) => {
+          const canvasId = `appChart_${idx}`;
+          const canvas = document.createElement("canvas");
+          canvas.id = canvasId;
+          canvas.style.maxHeight = "300px";
+          container.appendChild(document.createElement("hr"));
+
+          const titulo = document.createElement("h6");
+          titulo.textContent = `Uso de apps (${hostname})`;
+          container.appendChild(titulo);
+          container.appendChild(canvas);
+
+          const labels = Object.keys(apps);
+          const values = Object.values(apps);
+          const colors = labels.map((_, i) => gerarCor(i));
+
+          new Chart(canvas.getContext("2d"), {
+            type: "pie",
+            data: {
+              labels,
+              datasets: [
+                {
+                  data: values,
+                  backgroundColor: colors,
+                },
+              ],
             },
-          },
+            options: {
+              responsive: true,
+              plugins: {
+                legend: {
+                  position: "bottom",
+                },
+              },
+            },
+          });
         });
       }
 
-      fetchData();
+      function refreshDados() {
+        buscarDados();
+      }
+
+      window.onload = () => {
+        const hoje = new Date();
+        const dataFormatada = hoje.toISOString().split("T")[0];
+        document.getElementById("dataInput").value = dataFormatada;
+        buscarDados();
+      };
     </script>
   </body>
 </html>
