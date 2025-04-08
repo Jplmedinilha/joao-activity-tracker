@@ -15,16 +15,19 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(bodyParser.json());
 
-const db = await mysql.createConnection({
+// Pool de conexões
+const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
   database: process.env.DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
 });
 
 // Rota protegida
 app.post("/monitor", verifyAuthHash, async (req, res) => {
-  console.log(req.body);
   const {
     timestamp,
     hostname,
@@ -38,50 +41,49 @@ app.post("/monitor", verifyAuthHash, async (req, res) => {
   } = req.body;
 
   try {
-    // Verifica se a conexão com o banco está ativa
-    if (!db || db._closing || db._fatalError) {
-      await db.connect();
-    }
+    const conn = await pool.getConnection();
 
-    // Insere na tabela principal
-    const [result] = await db.execute(
-      `INSERT INTO user_main_activity 
+    try {
+      const [result] = await conn.execute(
+        `INSERT INTO user_main_activity 
           (timestamp, hostname, window_title, right_clicks, left_clicks, scroll_up, scroll_down, total_keys)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        timestamp,
-        hostname,
-        window_title,
-        right_clicks,
-        left_clicks,
-        scroll_up,
-        scroll_down,
-        total_keys,
-      ]
-    );
-
-    const mainId = result.insertId;
-
-    // Prepara e filtra os dados customizados
-    const customValues = Object.entries(custom_counts)
-      .filter(([_, count]) => count > 0)
-      .map(([key, count]) => [mainId, key, count]);
-
-    if (customValues.length > 0) {
-      await db.query(
-        `INSERT INTO user_custom_activity (main_activity_id, key_name, key_count)
-           VALUES ?`,
-        [customValues]
+        [
+          timestamp,
+          hostname,
+          window_title,
+          right_clicks,
+          left_clicks,
+          scroll_up,
+          scroll_down,
+          total_keys,
+        ]
       );
-    }
 
-    res.status(201).json({ status: "OK", inserted_id: mainId });
+      const mainId = result.insertId;
+
+      const customValues = Object.entries(custom_counts || {})
+        .filter(([_, count]) => count > 0)
+        .map(([key, count]) => [mainId, key, count]);
+
+      if (customValues.length > 0) {
+        await conn.query(
+          `INSERT INTO user_custom_activity (main_activity_id, key_name, key_count) VALUES ?`,
+          [customValues]
+        );
+      }
+
+      res.status(201).json({ status: "OK", inserted_id: mainId });
+    } finally {
+      conn.release(); // Libera a conexão de volta para o pool
+    }
   } catch (err) {
     console.error("Erro ao inserir dados:", err);
     res.status(500).json({ error: "Erro interno ao inserir os dados" });
   }
 });
 
+// Rota de leitura
 app.get("/monitor", async (req, res) => {
   const { dia, mes, ano } = req.query;
 
@@ -91,84 +93,88 @@ app.get("/monitor", async (req, res) => {
     });
 
   try {
-    if (!db || db._closing || db._fatalError) await db.connect();
+    const conn = await pool.getConnection();
 
-    const pad = (v) => v.padStart(2, "0");
-    const dateStart = `${ano}-${pad(mes)}-${pad(dia)} 00:00:00`;
-    const dateEnd = `${ano}-${pad(mes)}-${pad(dia)} 23:59:59`;
+    try {
+      const pad = (v) => v.padStart(2, "0");
+      const dateStart = `${ano}-${pad(mes)}-${pad(dia)} 00:00:00`;
+      const dateEnd = `${ano}-${pad(mes)}-${pad(dia)} 23:59:59`;
 
-    const [mainRows] = await db.query(
-      `SELECT * FROM user_main_activity WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp`,
-      [dateStart, dateEnd]
-    );
-
-    if (!mainRows.length)
-      return res.status(200).json({ atividades: [], heatmap: {} });
-
-    const mainIds = mainRows.map((row) => row.id);
-
-    const [customRows] = await db.query(
-      `SELECT * FROM user_custom_activity WHERE main_activity_id IN (?)`,
-      [mainIds]
-    );
-
-    const customMap = customRows.reduce((acc, row) => {
-      if (!acc[row.main_activity_id]) acc[row.main_activity_id] = [];
-      acc[row.main_activity_id].push({
-        key_name: row.key_name,
-        key_count: row.key_count,
-      });
-      return acc;
-    }, {});
-
-    const extrairAppName = (title) => {
-      if (!title || typeof title !== "string") return "Desconhecido";
-      const partes = title.split(" | ");
-      if (partes.length > 1) return partes.at(-1).trim();
-      const hifen = title.split(" - ");
-      return hifen.length > 1 ? hifen.at(-1).trim() : title.trim();
-    };
-
-    const atividades = [];
-    const heatmap = {};
-
-    for (const row of mainRows) {
-      const zoned = DateTime.fromJSDate(row.timestamp).setZone(
-        "America/Sao_Paulo",
-        { keepLocalTime: true }
+      const [mainRows] = await conn.query(
+        `SELECT * FROM user_main_activity WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp`,
+        [dateStart, dateEnd]
       );
 
-      const horaChave = zoned
-        .set({
-          second: 0,
-          millisecond: 0,
-          minute: Math.floor(zoned.minute / 10) * 10,
-        })
-        .toFormat("HH:mm");
+      if (!mainRows.length)
+        return res.status(200).json({ atividades: [], heatmap: {} });
 
-      const atividade = {
-        ...row,
-        timestamp: zoned.toFormat("yyyy-MM-dd HH:mm:ss"),
-        custom_counts: customMap[row.id] || [],
-        app_name: extrairAppName(row.window_title),
+      const mainIds = mainRows.map((row) => row.id);
+
+      const [customRows] = await conn.query(
+        `SELECT * FROM user_custom_activity WHERE main_activity_id IN (?)`,
+        [mainIds]
+      );
+
+      const customMap = customRows.reduce((acc, row) => {
+        if (!acc[row.main_activity_id]) acc[row.main_activity_id] = [];
+        acc[row.main_activity_id].push({
+          key_name: row.key_name,
+          key_count: row.key_count,
+        });
+        return acc;
+      }, {});
+
+      const extrairAppName = (title) => {
+        if (!title || typeof title !== "string") return "Desconhecido";
+        const partes = title.split(" | ");
+        if (partes.length > 1) return partes.at(-1).trim();
+        const hifen = title.split(" - ");
+        return hifen.length > 1 ? hifen.at(-1).trim() : title.trim();
       };
-      delete atividade.window_title;
 
-      atividades.push(atividade);
+      const atividades = [];
+      const heatmap = {};
 
-      const soma =
-        (row.right_clicks || 0) +
-        (row.left_clicks || 0) +
-        (row.scroll_up || 0) +
-        (row.scroll_down || 0) +
-        (row.total_keys || 0);
+      for (const row of mainRows) {
+        const zoned = DateTime.fromJSDate(row.timestamp).setZone(
+          "America/Sao_Paulo",
+          { keepLocalTime: true }
+        );
 
-      if (!heatmap[horaChave]) heatmap[horaChave] = {};
-      heatmap[horaChave][row.hostname] =
-        (heatmap[horaChave][row.hostname] || 0) + soma;
+        const horaChave = zoned
+          .set({
+            second: 0,
+            millisecond: 0,
+            minute: Math.floor(zoned.minute / 10) * 10,
+          })
+          .toFormat("HH:mm");
+
+        const atividade = {
+          ...row,
+          timestamp: zoned.toFormat("yyyy-MM-dd HH:mm:ss"),
+          custom_counts: customMap[row.id] || [],
+          app_name: extrairAppName(row.window_title),
+        };
+        delete atividade.window_title;
+
+        atividades.push(atividade);
+
+        const soma =
+          (row.right_clicks || 0) +
+          (row.left_clicks || 0) +
+          (row.scroll_up || 0) +
+          (row.scroll_down || 0) +
+          (row.total_keys || 0);
+
+        if (!heatmap[horaChave]) heatmap[horaChave] = {};
+        heatmap[horaChave][row.hostname] =
+          (heatmap[horaChave][row.hostname] || 0) + soma;
+      }
+
+      res.status(200).json({ atividades, heatmap });
+    } finally {
+      conn.release();
     }
-
-    res.status(200).json({ atividades, heatmap });
   } catch (err) {
     console.error("Erro ao buscar dados:", err);
     res.status(500).json({ error: "Erro ao buscar dados" });
