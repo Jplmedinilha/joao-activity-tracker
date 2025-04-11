@@ -22,6 +22,7 @@
         height: 1200px;
         width: 1200px;
       }
+
       table {
         font-size: 0.9rem;
       }
@@ -38,14 +39,20 @@
   </head>
   <body class="p-4">
     <div class="d-flex align-items-center mb-3 gap-2">
-      <input type="date" id="dataInput" class="form-control w-auto" />
+      <input
+        type="date"
+        id="dataInput"
+        onchange="buscarDados()"
+        class="form-control w-auto"
+      />
       <button class="btn btn-primary" onclick="buscarDados()">Buscar</button>
-      <button class="btn btn-secondary" onclick="refreshDados()">
+      <!-- <button class="btn btn-secondary" onclick="refreshDados()">
         🔄 Atualizar
-      </button>
+      </button> -->
       <label for="hostnameSelect">Filtrar hostnames:</label>
       <select
         id="hostnameSelect"
+        class="form-control w-50"
         multiple
         placeholder="Escolha os hostnames..."
       ></select>
@@ -267,6 +274,10 @@
         const container = document.getElementById("graficoAppsPorHostname");
         container.innerHTML = "";
 
+        if (hostnameSelect.tomselect) {
+          hostnameSelect.tomselect.destroy();
+        }
+
         Object.entries(appUsagePorHostname).forEach(([hostname, apps], idx) => {
           //hostnameSelect
           const option = document.createElement("option");
@@ -430,8 +441,16 @@
       }
 
       window.onload = () => {
-        const hoje = new Date();
-        const dataFormatada = hoje.toISOString().split("T")[0];
+        const agora = new Date();
+        const options = {
+          timeZone: "America/Sao_Paulo",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        };
+        const formatter = new Intl.DateTimeFormat("en-CA", options); // formato YYYY-MM-DD
+        const dataFormatada = formatter.format(agora);
+
         document.getElementById("dataInput").value = dataFormatada;
         buscarDados();
       };
